@@ -1,0 +1,9 @@
+
+# environment variables
+.env
+
+# virtual environment
+.venv
+
+# temporary recordings
+recordings

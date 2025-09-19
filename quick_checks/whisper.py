@@ -22,7 +22,8 @@ def transcribe(wav_bytes):
     return text, info.language
 
 if __name__ == "__main__":
-    wav = record(5)
-    text, lang = transcribe(wav)
-    print(f"Detected language: {lang}")
-    print("Transcribed text:", text)
+    while True:
+        wav = record(5)
+        text, lang = transcribe(wav)
+        print(f"Detected language: {lang}")
+        print("Transcribed text:", text)

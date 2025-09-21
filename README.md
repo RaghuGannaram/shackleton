@@ -1,6 +1,8 @@
-# Shackleton | Voice Assistant with LiveKit + OpenAI — Step‑by‑Step Roadmap
+# Shackleton | A Voice Assistant
 
-> Goal: Ship a real‑time, multimodal personal assistant (voice‑first, camera/vision optional) that runs in the browser/mobile, connects over LiveKit for ultra‑low‑latency media, and uses OpenAI models for reasoning, tools, and speech.
+> **Shackleton** is a resilient, loyal, and companionable AI assistant — a leader of tools and tasks who brings the explorer’s determination into your daily work, while speaking with warmth, humor, and steady support.  
+
+> **Goal:** Ship a real-time, multimodal personal assistant (voice-first, camera/vision optional) that runs in the browser/mobile, connects over **LiveKit** for ultra-low-latency media, and uses **OpenAI models** for reasoning, tools, and speech.  
 
 ---
 

@@ -1,6 +1,7 @@
 python-dotenv
 pydantic>=2
 pydantic-settings
+httpx
 
 livekit-agents
 livekit-plugins-openai

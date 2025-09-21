@@ -1,0 +1,2 @@
+### wttr
+GET https://wttr.in/{Hyderabad}?format=4

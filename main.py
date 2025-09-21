@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import os
+import asyncio
 from typing import Optional
 from contextlib import asynccontextmanager
 
@@ -14,12 +14,17 @@ from livekit.plugins import google
 from livekit.plugins import noise_cancellation
 
 from configs.settings import settings
-from configs.logger import init_logger, get_logger, set_log_context, clear_log_context
-from tools.tools import get_weather, search_web, send_email
+from configs.logger import (
+    init_logger,
+    get_logger,
+    fetch_log_context,
+    set_log_context,
+    clear_log_context,
+)
+from tools.tools import get_weather
 from prompts.instructions import (
     AGENT_INSTRUCTION,
     SESSION_INSTRUCTION,
-    FAREWELL_INSTRUCTION,
 )
 
 load_dotenv()
@@ -40,10 +45,8 @@ LOG_MAX_BYTES = settings.LOG_MAX_BYTES
 LOG_BACKUP_COUNT = settings.LOG_BACKUP_COUNT
 
 # gaurdrails for sensitive tools
+REQUIRE_CONFIRM_SENSITIVE = settings.REQUIRE_CONFIRM_SENSITIVE
 SENSITIVE_TOOLS = {"send_email"}
-REQUIRE_CONFIRM_SENSITIVE = (
-    os.getenv("REQUIRE_CONFIRM_SENSITIVE", "true").lower() == "true"
-)
 
 log = init_logger(
     log_level=LOG_LEVEL,
@@ -92,12 +95,16 @@ class Assistant(Agent):
     """
 
     def __init__(self) -> None:
-        tools = [get_weather, search_web, send_email]
 
         super().__init__(
             instructions=AGENT_INSTRUCTION,
             llm=build_realtime_model(),
-            tools=tools,
+            tools=[get_weather],
+        )
+
+    async def on_enter(self) -> None:
+        await self.session.generate_reply(
+            instructions=SESSION_INSTRUCTION, allow_interruptions=True
         )
 
     async def on_tool_call(self, name: str, args: dict) -> Optional[str]:
@@ -105,13 +112,14 @@ class Assistant(Agent):
         Intercept tool calls for safety/confirmation, audit, and metrics.
         Return a string message to the user to block/confirm, or None to allow.
         """
-        log.info("tool call requested: %s args=%s", name, args)
+        log.info("✏️ tool call requested: %s args=%s", name, args)
 
         if requires_confirmation(name, args):
             return (
                 "This action may be sensitive. Please confirm before I proceed: "
                 f"{name} with {args}. Say 'confirm' or provide corrections."
             )
+        
         return None
 
 
@@ -126,20 +134,23 @@ async def session_lifecycle():
         yield
     finally:
         # TODO: flush telemetry, close db, etc.
-        pass
+        room_context = fetch_log_context()
+        log.info(
+            "✏️ ending Shackleton's session for room=%s", room_context.get("room", "-")
+        )
+        clear_log_context()
 
 
 async def entrypoint(ctx: agents.JobContext):
-    try:
-        rid = getattr(ctx, "room", None) or "-"
-    except Exception:
-        rid = "-"
-    set_log_context(room=rid, provider=REALTIME_PROVIDER, voice=REALTIME_VOICE)
+    room_obj = getattr(ctx, "room", None).sid or "-"
+    room_id = str(room_obj)
+
+    set_log_context(room=room_id, provider=REALTIME_PROVIDER, voice=REALTIME_VOICE)
 
     async with session_lifecycle():
-        session = AgentSession()
-        log.info("starting Shackleton session 🚀")
+        log.info("✏️ starting Shackleton session 🚀🚀🚀 ")
 
+        session = AgentSession()
         input_opts = RoomInputOptions(
             video_enabled=REALTIME_VISION,
             noise_cancellation=noise_cancellation.BVC() if REALTIME_USE_BVC else None,
@@ -152,55 +163,22 @@ async def entrypoint(ctx: agents.JobContext):
                 room_input_options=input_opts,
             )
             await ctx.connect()
+            log.info("✏️ worker connected 🔗, preparing to greet👋")
 
-            log.info("worker connected 🔗; generating opening reply")
-            await session.generate_reply(instructions=SESSION_INSTRUCTION)
-
-            # The session now streams audio both ways and reacts in real time.
-            # If you want background tasks, you could await an Event or sleep forever:
-            # while await asyncio.sleep(60, result=True):
-            #     # TODO: proactive checks / heartbeats / periodic summaries
-            #     pass
+            while await asyncio.sleep(60, result=True):
+                log.info("✏️ Shackleton still here in room=%s, standing by 🫡")
 
         except Exception as e:
-            explanation = user_friendly_error(e)
-
-            await session.generate_reply(
-                instructions=(
-                    f"I ran into a problem: {explanation} "
-                    "I'll steady things on my end and try again shortly."
-                )
+            log.exception(
+                "✏️ fatal error in Shackleton session [room=%s]: %s", e
             )
-
-            log.exception("fatal error in Shackleton session [room=%s]: %s", rid, e)
-
             raise
-        finally:
-            try:
-                await session.generate_reply(instructions=FAREWELL_INSTRUCTION)
-            except Exception:
-                log.warning("could not send closing message for room=%s", rid)
-
-            log.info("ending Shackleton's session for room=%s", rid)
-
-
-def user_friendly_error(e: Exception) -> str:
-    s = str(e).lower()
-    if "network" in s or "connection" in s:
-        return "It looks like there was a network connection issue."
-    if "timeout" in s:
-        return "One of my tools took too long to respond."
-    if "authentication" in s or "unauthorized" in s:
-        return "There was an authentication issue while accessing a service."
-    if "not found" in s:
-        return "I couldn't find the resource I was expecting."
-    return "Something unexpected happened while I was working on your request."
 
 
 if __name__ == "__main__":
     try:
         agents.cli.run_app(agents.WorkerOptions(entrypoint_fnc=entrypoint))
     except KeyboardInterrupt:
-        log.info("received termination signal ⏹️; shutting down gracefully.")
+        log.info("✏️ received termination signal ⏹️; shutting down gracefully.")
     finally:
         pass

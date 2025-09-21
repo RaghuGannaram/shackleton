@@ -55,14 +55,16 @@ def init_logger(
         consoleHandler.setLevel(log_level.upper())
 
         # rotating file
-        fileHandler = RotatingFileHandler(path, maxBytes=max_bytes, backupCount=backups, encoding="utf-8")
+        fileHandler = RotatingFileHandler(
+            path, maxBytes=max_bytes, backupCount=backups, encoding="utf-8"
+        )
         fileHandler.setLevel(log_level.upper())
 
         log_format = logging.Formatter(
-            fmt="%(asctime)s %(levelname)s %(name)s "
-            "[room=%(room_id)s provider=%(provider)s voice=%(voice)s] "
+            fmt="%(asctime)s - %(levelname)s %(name)s "
+            "[%(voice)s by %(provider)s] "
             "%(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S%z",
+            datefmt="%Y-%m-%d %H:%M:%S,%z",
         )
         consoleHandler.setFormatter(log_format)
         fileHandler.setFormatter(log_format)
@@ -84,6 +86,14 @@ def get_logger() -> logging.Logger:
     if _log is None:
         return init_logger()
     return _log
+
+
+def fetch_log_context() -> dict[str, str]:
+    return {
+        "room": _room_id.get(),
+        "provider": _provider.get(),
+        "voice": _voice.get(),
+    }
 
 
 def set_log_context(

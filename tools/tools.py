@@ -1,12 +1,12 @@
 import asyncio
 import json
 import httpx
-from typing import Dict, Any
+from typing import Dict, Any, List 
 from urllib.parse import quote_plus
 
 from livekit.agents import function_tool, RunContext
 
-# from langchain_community.tools import DuckDuckGoSearchRun
+from langchain_community.tools import DuckDuckGoSearchRun
 # import os
 # import smtplib
 # from email.mime.multipart import MIMEMultipart
@@ -20,6 +20,7 @@ log = get_logger()
 DEFAULT_TIMEOUT_MS = 5000
 RETRY_ATTEMPTS = 1
 
+MAX_SEARCH_RESULTS = 5
 
 def _ok(payload: Dict[str, Any]) -> str:
     """LLM-friendly structured success."""
@@ -47,6 +48,16 @@ async def _fetch_wttr(city: str) -> str:
 
         return response.text.strip()
 
+def _format_search_results(raw_results: List[Dict[str, Any]], limit: int = MAX_SEARCH_RESULTS) -> List[Dict[str, Any]]:
+    out = []
+    for i, r in enumerate(raw_results[:limit]):
+        out.append({
+            "rank": i + 1,
+            "title": r.get("title") or r.get("heading") or "",
+            "link": r.get("link") or r.get("url") or "",
+            "snippet": (r.get("snippet") or r.get("body") or "")[:500]  # keep snippet short
+        })
+    return out
 
 @function_tool()
 async def get_weather(ctx: RunContext, city: str) -> str:
@@ -98,20 +109,42 @@ async def get_weather(ctx: RunContext, city: str) -> str:
     return _err("network_error", f"Network trouble fetching weather for {city}", detail=str(last_exc) if last_exc else None)
 
 
-# @function_tool()
-# async def search_web(
-#     context: RunContext,  # type: ignore
-#     query: str) -> str:
-#     """
-#     Search the web using DuckDuckGo.
-#     """
-#     try:
-#         results = DuckDuckGoSearchRun().run(tool_input=query)
-#         log.info(f"Search results for '{query}': {results}")
-#         return results
-#     except Exception as e:
-#         log.error(f"Error searching the web for '{query}': {e}")
-#         return f"An error occurred while searching the web for '{query}'."
+@function_tool()
+async def search_web(ctx: RunContext, query: str) -> str:
+    last_exc = None
+    for attempt in range(1 + RETRY_ATTEMPTS):
+        try:
+            raw = await asyncio.wait_for(
+                asyncio.to_thread(lambda: DuckDuckGoSearchRun().run(tool_input=query)),
+                timeout=DEFAULT_TIMEOUT_MS
+            )
+
+            if isinstance(raw, str):
+                try:
+                    parsed = json.loads(raw)
+                except Exception:
+                    parsed = [{"title": query, "link": "", "snippet": raw}]
+            else:
+                parsed = raw
+
+            results = _format_search_results(parsed, limit=MAX_SEARCH_RESULTS)
+            log.info("✏️ search '%s' -> %d results (showing %d)", query, len(parsed), len(results))
+            
+            return _ok({"query": query, "results": results})
+        except asyncio.TimeoutError as e:
+            last_exc = e
+            log.warning("✏️ search timeout for '%s' (attempt %d)", query, attempt + 1)
+            if attempt < RETRY_ATTEMPTS:
+                await asyncio.sleep(0.2 * (attempt + 1))
+            else:
+                return _err("timeout", f"Search timed out for query: {query}")
+        except Exception as e:
+            last_exc = e
+            log.exception("✏️ unexpected error searching web for '%s': %s", query, e)
+            return _err("internal_error", f"Failed to search web for {query}", detail=str(e))
+
+    return _err("network_error", f"Network trouble during search for {query}", detail=str(last_exc) if last_exc else None)
+
 
 # @function_tool()
 # async def send_email(

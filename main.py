@@ -21,7 +21,7 @@ from configs.logger import (
     set_log_context,
     clear_log_context,
 )
-from tools.tools import get_weather
+from tools.tools import get_weather, search_web
 from prompts.instructions import (
     AGENT_INSTRUCTION,
     SESSION_INSTRUCTION,
@@ -99,7 +99,7 @@ class Assistant(Agent):
         super().__init__(
             instructions=AGENT_INSTRUCTION,
             llm=build_realtime_model(),
-            tools=[get_weather],
+            tools=[get_weather, search_web],
         )
 
     async def on_enter(self) -> None:

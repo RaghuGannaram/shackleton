@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from livekit import agents
 from livekit.agents import AgentSession, Agent, RoomInputOptions
 
-# from livekit.plugins import openai
+from livekit.plugins import openai
 from livekit.plugins import google
 from livekit.plugins import noise_cancellation
 
@@ -57,13 +57,13 @@ log = init_logger(
 )
 
 
-def requires_confirmation(tool_name: str, args: dict) -> bool:
+def _requires_confirmation(tool_name: str, args: dict) -> bool:
     if not REQUIRE_CONFIRM_SENSITIVE:
         return False
     return tool_name in SENSITIVE_TOOLS
 
 
-def build_realtime_model():
+def _build_realtime_model():
     """
     Returns a LiveKit-compatible realtime model instance
     depending on the PROVIDER flag.
@@ -77,10 +77,10 @@ def build_realtime_model():
         )
     elif REALTIME_PROVIDER == "openai":
         # OpenAI Realtime: single model for STT -> Think -> TTS
-        # return openai.realtime.RealtimeModel(
-        #     voice=VOICE,
-        #     temperature=TEMP,
-        # )
+        return openai.realtime.RealtimeModel(
+            voice=REALTIME_VOICE,
+            temperature=REALTIME_TEMP,
+        )
         raise NotImplementedError("OpenAI Realtime provider not wired yet.")
     elif REALTIME_PROVIDER == "pipeline":
         # TODO: Build modular pipeline (TTS (Whisper) -> LLM (OpenAI) -> TTS (Piper)) here.
@@ -98,7 +98,7 @@ class Assistant(Agent):
 
         super().__init__(
             instructions=AGENT_INSTRUCTION,
-            llm=build_realtime_model(),
+            llm=_build_realtime_model(),
             tools=[get_weather, search_web],
         )
 
@@ -114,7 +114,7 @@ class Assistant(Agent):
         """
         log.info("✏️ tool call requested: %s args=%s", name, args)
 
-        if requires_confirmation(name, args):
+        if _requires_confirmation(name, args):
             return (
                 "This action may be sensitive. Please confirm before I proceed: "
                 f"{name} with {args}. Say 'confirm' or provide corrections."

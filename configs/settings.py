@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     # Agent configs
     REALTIME_PROVIDER: Literal["google", "openai", "pipeline"] = "google"
-    REALTIME_VOICE: Literal["Charon", "Fenrir", "Sadachbia", "Enceladus", "Orus"] = "Fenrir"
+    REALTIME_VOICE: Literal["Charon", "Fenrir", "Sadachbia", "Enceladus", "Orus", "alloy", "ash", "cedar", "marin", "sage"] = "Fenrir"
     REALTIME_TEMP: float = Field(default=0.8, ge=0.0, le=2.0)
     REALTIME_VISION: bool = True
     REALTIME_USE_BVC: bool = True

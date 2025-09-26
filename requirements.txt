@@ -1,7 +1,6 @@
 python-dotenv
 pydantic>=2
 pydantic-settings
-httpx
 
 livekit-agents
 livekit-plugins-openai
@@ -9,7 +8,7 @@ livekit-plugins-google
 livekit-plugins-silero
 livekit-plugins-noise-cancellation
 
-langchain_community
-ddgs
 requests
+httpx
+ddgs
 mem0ai

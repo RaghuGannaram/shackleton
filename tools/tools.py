@@ -1,12 +1,14 @@
-import asyncio
 import json
-import httpx
-from typing import Dict, Any, List 
+import asyncio
+
+from typing import Dict, Any, List, Optional 
 from urllib.parse import quote_plus
 
-from livekit.agents import function_tool, RunContext
+from livekit.agents import function_tool, RunContext, ToolError
 
-from langchain_community.tools import DuckDuckGoSearchRun
+import httpx
+from ddgs import DDGS
+
 # import os
 # import smtplib
 # from email.mime.multipart import MIMEMultipart
@@ -17,50 +19,26 @@ from configs.logger import get_logger
 
 log = get_logger()
 
-DEFAULT_TIMEOUT_MS = 5000
+DEFAULT_TIMEOUT_MS = 10_000
 RETRY_ATTEMPTS = 1
 
-MAX_SEARCH_RESULTS = 5
-
-def _ok(payload: Dict[str, Any]) -> str:
-    """LLM-friendly structured success."""
-
-    return json.dumps({"ok": True, **payload})
-
-
-def _err(type: str, message: str, **extra) -> str:
-    """LLM-friendly structured error."""
-
-    payload = {"ok": False, "error": {"type": type, "message": message}}
-    if extra:
-        payload["error"].update(extra)
-
-    return json.dumps(payload)
-
+MAX_SEARCH_RESULTS = 10
+MAX_SEARCH_TEXT_LENGTH = 1000  # chars
 
 async def _fetch_wttr(city: str) -> str:
     url = f"https://wttr.in/{quote_plus(city)}?format=4"
     headers = {"User-Agent": "Shackleton/1.0"}
+    timeout = httpx.Timeout(DEFAULT_TIMEOUT_MS / 1000.0)
 
-    async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT_MS / 1000, headers=headers) as client:
+    async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
         response = await client.get(url)
         response.raise_for_status()
 
         return response.text.strip()
 
-def _format_search_results(raw_results: List[Dict[str, Any]], limit: int = MAX_SEARCH_RESULTS) -> List[Dict[str, Any]]:
-    out = []
-    for i, r in enumerate(raw_results[:limit]):
-        out.append({
-            "rank": i + 1,
-            "title": r.get("title") or r.get("heading") or "",
-            "link": r.get("link") or r.get("url") or "",
-            "snippet": (r.get("snippet") or r.get("body") or "")[:500]  # keep snippet short
-        })
-    return out
 
 @function_tool()
-async def get_weather(ctx: RunContext, city: str) -> str:
+async def get_weather(ctx: RunContext, city: str) -> Dict[str, Any]:
     """
     Retrieve real-time weather information for a given city using the wttr.in service.
 
@@ -69,81 +47,148 @@ async def get_weather(ctx: RunContext, city: str) -> str:
           (e.g., "Hyderabad", "New York", "Tokyo").
 
     Output:
-        - A concise, emoji-rich weather summary string returned directly from wttr.in,
-          for example:
-              "{Hyderabad}: ⛅️  🌡️+31°C 🌬️←18km/h"
-
-          • Location name: the requested city
-          • Sky/condition: emoji & description (e.g., ☀️ clear, 🌧️ rain, ⛅️ partly cloudy, etc..)
-          • Temperature: current temperature in Celsius (prefixed with 🌡️)
-          • Wind: current wind direction and speed in km/h (prefixed with 🌬️)
+        - A dictionary named `weather_info` containing the following keys:
+            • ok (bool): True if the request succeeded, False otherwise.
+            • city (str): The requested city name.
+            • brief (str): A concise, emoji-rich weather summary from wttr.in, for example:
+                "⛅️  🌡️+31°C 🌬️←18km/h"
+                - Sky/condition: emoji & description (e.g., ☀️ clear, 🌧️ rain, ⛅️ partly cloudy)
+                - Temperature: current temperature in Celsius (prefixed with 🌡️)
+                - Wind: current wind direction and speed in km/h (prefixed with 🌬️)
+            • text (str): A human-friendly message combining the city and brief weather summary,
+              e.g., "The current weather in Hyderabad is ⛅️  🌡️+31°C 🌬️←18km/h."
 
     Notes:
-        - The output is intentionally compact and human-friendly, designed to be read
-          aloud by a voice assistant or shown inline in chat.
+        - The output is intentionally compact and readable, suitable for:
+            • Voice assistants
+            • Chatbot responses
+            • Inline display in UIs
+        - `weather_info` provides both a machine-readable format (`brief`, `city`, `ok`) and
+          a human-readable string (`text`).
     """
+
+    log.info("✏️ get_weather: fetching %s's weather", city)
     last_exc = None
     for attempt in range(1 + RETRY_ATTEMPTS):
         try:
-            response = await _fetch_wttr(city)
-            log.info("✏️ weather update for %s: %s", city, response)
+            brief = await _fetch_wttr(city)
+            
+            if brief.lower().startswith(f"{city.lower()}:"):
+                brief = brief[len(city) + 1 :].strip()
 
-            return _ok({"city": city, "brief": response})
+            text = f"The current weather in {city} is {brief}."
+            weather_info = {"ok": True, "city": city, "brief": brief, "text": text}
+
+            log.info("✏️ get_weather: response %s", repr(weather_info))
+
+            return weather_info
         except httpx.HTTPStatusError as e:
-            log.warning("✏️ wttr http %s for %s", e.response.status_code, city)
+            log.warning("✏️ get_weather: faced wttr http error %s", e.response.status_code)
 
-            return _err("http_error", f"Could not retrieve weather for {city}", status_code=e.response.status_code)
+            raise ToolError(f"Could not retrieve weather for {city} (status {e.response.status_code})")
         except (httpx.ConnectError, httpx.ReadTimeout, httpx.TransportError) as e:
             last_exc = e
-            log.warning("✏️ wttr transient error (attempt %d): %s", attempt + 1, e)
+            log.warning("✏️ get_weather: faced wttr transient error (attempt %d): %s", attempt + 1, e)
 
             if attempt < RETRY_ATTEMPTS:
                 await asyncio.sleep(0.1 * (attempt + 1))
             else:
                 break
         except Exception as e:
-            log.exception("✏️ unexpected error retrieving weather for %s: %s", city, e)
+            last_exc = e
+            log.exception("✏️ get_weather: faced unexpected error %s", e)
 
-            return _err("internal_error", f"Failed to fetch weather for {city}")
+            raise ToolError("Unexpected error fetching weather")
 
-    return _err("network_error", f"Network trouble fetching weather for {city}", detail=str(last_exc) if last_exc else None)
+    raise ToolError(f"Network trouble fetching weather for {city}: {last_exc}")
+
+def _ddg_search(query, region="in", max_results=MAX_SEARCH_RESULTS):
+    search_results = []
+    with DDGS() as ddgs:
+        for result in ddgs.text(query, region=region, safesearch="Off"):
+            search_results.append({
+                "title": result.get("title"),
+                "url": result.get("href"),
+                "snippet": result.get("body")
+            })
+            if len(search_results) >= max_results:
+                break
+    return search_results
+
+
+def _format_search_results(raw_results: List[Dict[str, Any]], limit: int = MAX_SEARCH_RESULTS) -> List[Dict[str, Any]]:
+    out = []
+    for i, result in enumerate(raw_results[:limit]):
+        out.append({
+            "rank": i + 1,
+            "title": result.get("title") or result.get("heading") or "",
+            "link": result.get("link") or result.get("url") or "",
+            "snippet": (result.get("snippet") or result.get("body") or "")[:MAX_SEARCH_TEXT_LENGTH]
+        })
+    return out
 
 
 @function_tool()
 async def search_web(ctx: RunContext, query: str) -> str:
+    """
+    Perform a web search using DuckDuckGo and return structured results.
+
+    Input:
+        - query (str): The search query string.
+
+    Output:
+        - Dictionary `search_info` containing:
+            • ok (bool): True if search succeeded, False otherwise.
+            • query (str): The original search query.
+            • results (List[Dict]): A list of formatted search results, each containing:
+                • rank (int): Result ranking starting at 1.
+                • title (str): The result title.
+                • link (str): The result URL.
+                • snippet (str): Short snippet/description of the result (max 500 chars).
+
+    Notes:
+        - `search_info` provides both machine-readable structured data (`results`) and
+          a human-friendly summary (`title` + `snippet`) for display or LLM consumption.
+        - Handles timeouts, network errors, and internal exceptions gracefully.
+    """
+    log.debug("✏️ search_web: searching for %s", query)
     last_exc = None
     for attempt in range(1 + RETRY_ATTEMPTS):
         try:
-            raw = await asyncio.wait_for(
-                asyncio.to_thread(lambda: DuckDuckGoSearchRun().run(tool_input=query)),
+            raw_results = await asyncio.wait_for(
+                asyncio.to_thread(lambda: _ddg_search(query)),
                 timeout=DEFAULT_TIMEOUT_MS
             )
 
-            if isinstance(raw, str):
+            if isinstance(raw_results, str):
                 try:
-                    parsed = json.loads(raw)
+                    parsed = json.loads(raw_results)
                 except Exception:
-                    parsed = [{"title": query, "link": "", "snippet": raw}]
+                    parsed = [{"title": query, "link": "", "snippet": raw_results}]
             else:
-                parsed = raw
+                parsed = raw_results
 
             results = _format_search_results(parsed, limit=MAX_SEARCH_RESULTS)
-            log.info("✏️ search '%s' -> %d results (showing %d)", query, len(parsed), len(results))
-            
-            return _ok({"query": query, "results": results})
+
+            search_info = {"ok": True, "query": query, "results": results}
+            log.info("✏️ search_web: fetched search results %s", repr(search_info))
+
+            return search_info
         except asyncio.TimeoutError as e:
             last_exc = e
-            log.warning("✏️ search timeout for '%s' (attempt %d)", query, attempt + 1)
+            log.warning("✏️ search_web: faced timeout error (attempt %d)", attempt + 1)
+
             if attempt < RETRY_ATTEMPTS:
                 await asyncio.sleep(0.2 * (attempt + 1))
             else:
-                return _err("timeout", f"Search timed out for query: {query}")
+                break
         except Exception as e:
             last_exc = e
-            log.exception("✏️ unexpected error searching web for '%s': %s", query, e)
-            return _err("internal_error", f"Failed to search web for {query}", detail=str(e))
+            log.exception("✏️ search_web: faced unexpected error %s", e)
 
-    return _err("network_error", f"Network trouble during search for {query}", detail=str(last_exc) if last_exc else None)
+            raise ToolError("Unexpected error searching web")
+
+    raise ToolError(f"Network trouble searching web for {query}: {last_exc}")
 
 
 # @function_tool()

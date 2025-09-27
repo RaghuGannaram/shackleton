@@ -8,5 +8,6 @@ __pycache__/
 .venv
 
 # logs
+KMS/
 logs/
 *.log

@@ -21,7 +21,8 @@ from configs.logger import (
     set_log_context,
     clear_log_context,
 )
-from tools.tools import get_weather, search_web
+from tools.get_weather import get_weather
+from tools.search_web import search_web
 from prompts.instructions import (
     AGENT_INSTRUCTION,
     SESSION_INSTRUCTION,

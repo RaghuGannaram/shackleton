@@ -7,6 +7,10 @@ __pycache__/
 # virtual environment
 .venv
 
+# temporary files
+temp/
+*.tmp
+
 # logs
 KMS/
 logs/

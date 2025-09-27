@@ -1,305 +1,163 @@
-# Shackleton | A Voice Assistant
+# Shackleton | AI Voice Assistant — Combined Roadmap & README
 
-> **Shackleton** is a resilient, loyal, and companionable AI assistant — a leader of tools and tasks who brings the explorer’s determination into your daily work, while speaking with warmth, humor, and steady support.  
-
-> **Goal:** Ship a real-time, multimodal personal assistant (voice-first, camera/vision optional) that runs in the browser/mobile, connects over **LiveKit** for ultra-low-latency media, and uses **OpenAI models** for reasoning, tools, and speech.  
+> **Shackleton** is a resilient, loyal, and companionable AI assistant — a leader of tools and tasks who brings the explorer’s determination into your daily work, while speaking with warmth, humor, and steady support.
+>
+> **Goal:** Ship a real-time, multimodal personal assistant (voice-first, camera/vision optional) that runs in the browser/mobile, connects over **LiveKit** for ultra-low-latency media, and uses realtime LLMs for reasoning, tools, and speech.
 
 ---
 
-## Phase 0 — Architecture & Non‑negotiables
-
-**Core loop (server‑authoritative):**
-
+### Core loop (server‑authoritative)
 1. **Capture**: Browser/mobile streams mic (and optionally cam/screen) to a **LiveKit room**.
-2. **Transcribe**: Either
+2. **Transcribe**:
+   - Realtime path: Realtime LLMs via LiveKit Agents plugin (STT → LLM → TTS), _or_
+   - Pipeline path: LiveKit VoicePipelineAgent wiring STT (Whisper) → LLM → TTS.
+3. **Reason**: Model calls dev‑defined tools (calendar, search, RAG, home automation) via function‑calling.
+4. **Speak**: Audio is synthesized and sent back as WebRTC audio (barge‑in/interrupt ready).
+5. **State**: Short‑term dialogue state and long‑term memory (Qdrant/Postgres) + file-based RAG.
 
-    - **Realtime path**: Use **OpenAI Realtime API** via LiveKit Agents plugin (single model does STT → think → TTS), _or_
-    - **Pipeline path**: LiveKit **VoicePipelineAgent** wires **STT (Whisper)** → **LLM** → **TTS**.
-
-3. **Reason**: Model calls dev‑defined **tools** (calendar, search, RAG, home automation) via function‑calling.
-4. **Speak**: Audio is synthesized and sent back as **WebRTC audio** into the same room (barge‑in/interrupt ready).
-5. **State**: Short‑term dialogue state in memory; long‑term user memory in a store (e.g., **Qdrant/Postgres**), plus file‑based RAG.
-
-**Must‑haves**
-
--   **Low latency** (<\~300–500 ms E2E speak‑back on fast networks). Prioritize Realtime path; fall back to pipeline for flexibility.
--   **Barge‑in**: Interrupt TTS when user starts speaking.
--   **Endpointing/VAD**: Robust end‑of‑speech detection (VAD + semantic endpointing) on the edge.
--   **Privacy**: PII redaction in logs; opt‑in camera; data retention controls.
--   **Observability**: per‑turn metrics (ASR delay, LLM thinking time, TTS synth time, RTT), transcripts, and tool audit.
+### Must‑haves (non‑negotiable)
+- Low latency (<~300–500 ms E2E speak‑back on good networks).
+- Barge‑in (cancel TTS when user starts speaking).
+- Robust endpointing & VAD at the edge.
+- PII redaction, opt‑in camera, retention controls.
+- Observability: per‑turn metrics and tool audit logs.
 
 ---
 
-## Phase 1 — Hello World (10–20 files)
+## Phases (precise & consolidated)
 
-1. **LiveKit project**: create a room; issue **ephemeral tokens** from a tiny auth server.
-2. **Frontend** (Next.js or SvelteKit):
+### Phase 0 — Foundation (Current)
+**Goal:** Run a voice bot in LiveKit and wire basic tools.
+- LiveKit integration, ephemeral tokens, simple frontend for mic join.
+- Tools: Weather (wttr.in), DuckDuckGo search (discovery).
+- Exit criteria: Bot can join a room and reply; barge‑in works; ASR/LLM/TTS spans captured.
 
-    - Join room, start mic, render waveform + push‑to‑talk and **hold‑to‑interrupt** buttons.
+### Phase 1 — Context‑Aware Retrieval (MVP)
+**Goal:** Reliable factual answers with provenance and timeline awareness.
+- Replace snippet-only behavior by: DuckDuckGo discovery + full-HTML fetch (ScrapingBee/ScraperAPI) + extractor (`newspaper3k`/Readability).
+- Timeline intelligence: Shackleton infers or asks timeline clarifying questions (yesterday, day before yesterday, tomorrow, custom range).
+- Publish-date verification and filtering (drop results outside requested window).
+- Add provenance store (URL, fetch time, excerpt, confidence).
+- Vector DB (Pinecone/FAISS/Qdrant) ingestion for RAG.
+**Exit criteria:** Verified sources for time-based queries and citations returned with answers.
 
-3. **Server Agent**:
+### Phase 2 — Knowledge Expansion & Tools
+**Goal:** Broader knowledge and researcher capabilities.
+- Add News APIs, finance APIs, knowledge graphs, and hybrid retrieval (BM25 + embeddings).
+- Enhanced summarization & multi‑doc QA.
+- More connectors: PDF ingestion, OCR, and structured document parsing.
+**Exit criteria:** Multi‑source synthesis with accurate citations and date-aware retrieval.
 
-    - **Option A: Realtime** — Create an **Agent Worker** that attaches to room as a bot participant using **OpenAI Realtime** via LiveKit Agents plugin.
-    - **Option B: Pipeline** — Create a **VoicePipelineAgent** (STT→LLM→TTS) with OpenAI STT/TTS + LLM.
+### Phase 3 — Productivity & Action Tools
+**Goal:** Make Shackleton actionable in workflows.
+- Connectors: Google Calendar, Gmail (read/draft), Slack, Drive, GitHub, Jira.
+- Action manager: safe actuation (create events, send drafts) with explicit confirmations and audit logs.
+- Improved session memory and personalization.
+**Exit criteria:** Secure OAuth flows and safe execution of user-confirmed actions.
 
-4. Ship: Say "Hello" to the bot; it replies. Verify barge‑in works.
+### Phase 4 — Multimodality (See & Show)
+**Goal:** Allow Shackleton to see and interact with visual content and richer inputs.
+- Vision: frame OCR, scene description, screen-share analysis.
+- Render-out: cards, images, attachments in UI while speaking.
+**Exit criteria:** Assistant can reason about images/screens and reference specific regions verbally.
 
-**Exit criteria**: Duplex audio round‑trip < 500 ms, no crashes on network jitter, logs show timestamps for ASR/LLM/TTS.
+### Phase 5 — Autonomous Agent Mode
+**Goal:** Multi‑step planning and autonomous workflows.
+- Define macros and watchlists, schedule monitoring and briefing jobs, autonomous low-risk tasks.
+- Personal long-term memory with opt-in retention and adaptive persona.
+**Exit criteria:** End-to-end autonomous workflows (with explicit user opt-in) and audit trail.
 
----
-
-## Phase 2 — Natural Conversation UX
-
--   **VAD & Endpointing**: Edge VAD (e.g., WebRTC VAD) + adaptive silence thresholds; enable **partial transcripts** and **semantic endpointing** (stop when intent is clear).
--   **Interruptions**: When user audio starts, **cancel TTS** and push the partial hypothesis back to the model (“Sorry, one moment…”) automatically.
--   **Personality & System Prompt**: Define **persona**, tone, and tool‑use policy. Add guardrails (no unsafe actions without confirmation).
--   **Transcripts UI**: Caption as you speak; show assistant’s words synchronized to audio.
-
-**Exit criteria**: Users can cut in; captions stay in sync with speech; persona is consistent.
-
----
-
-## Phase 3 — Tools (Shackleton capabilities)
-
-Define JSON‑schema tools and the execution layer:
-
--   **Calendar**: `add_event`, `list_events`, `move_event` → Google/Microsoft adapters.
--   **Reminders**: `set_timer`, `remind_at` → server cron/queue.
--   **Web**: `web_search`, `get_url` → controlled browsing with source quoting.
--   **Local OS/Home** (opt‑in): `launch_app`, `control_device` via Home Assistant.
--   **Knowledge**: `rag_query`, `save_note`, `get_note` → Qdrant/Postgres. Ingest PDFs/notes to an embeddings index with metadata.
-
-**Patterns**
-
--   Use OpenAI **function calling / tools** (Realtime or Responses API).
--   **Timeouts/Retries** and **circuit breakers** around external APIs.
--   **Tool sandbox**: Strong input validation; least‑privilege credentials per tool.
-
-**Exit criteria**: Tool calls are observable (request/response), fail gracefully, and are cancellable.
-
----
-
-## Phase 4 — Multimodality (“See & Show”)
-
--   **Vision‑in**: Periodic low‑FPS frames from camera; tool `describe_scene`, OCR receipts, read dashboards.
--   **Screen‑in** (desktop): screen‑share thumbnails for “explain this chart”.
--   **Render‑out**: Show images, code blocks, and small cards in the UI while it speaks. For longer content, offer a “Send to phone/email/Drive”.
-
-**Exit criteria**: Assistant can answer questions about what it sees and reference specific regions verbally.
+### Phase 6 — Top-Level Assistant (Final)
+**Goal:** Proactive, multimodal, context-rich assistant.
+- Continuous context awareness, proactive notifications, domain-specific skills, enterprise controls.
+**Exit criteria:** High user satisfaction in pilots; SLAs and governance in place.
 
 ---
 
-## Phase 5 — Memory & Personalization
+## Essential Tooling & Infrastructure (summary)
 
--   **Short‑term**: windowed summary of the last N turns, stored per session.
--   **Long‑term**: events/notes/preferences → embeddings (Qdrant) + structured tables (Postgres). Add **privacy toggles** per memory item.
--   **Identity**: user profile (name, locale, time zone, work hours). Use to set defaults (e.g., “tomorrow 10am IST”).
-
-**Exit criteria**: “Remind me to call mom Friday” persists and survives restarts; “What did I say about project X last week?” works.
-
----
-
-## Phase 6 — Quality, Safety, & Tests
-
--   **Eval harness**: scripted conversations measuring ASR WER, tool accuracy, latency percentiles, hallucination rate, and refusal correctness.
--   **Red‑team prompts**: jailbreaks, unsafe actions; require explicit confirmations for destructive tools.
--   **Audio QA**: clipping detection, ducking, volume normalization.
-
-**Exit criteria**: Dashboards with P50/P90 latency, tool success rate > a threshold, and refusal policy passes.
+- **Discovery & Fetching**: DuckDuckGo / SerpApi (discovery) → ScrapingBee / ScraperAPI / Playwright (full HTML rendering).
+- **Extraction**: newspaper3k, Readability, BeautifulSoup, custom heuristics.
+- **Indexing & RAG**: Pinecone / Qdrant / FAISS; embeddings (OpenAI or open-source).
+- **Agent Orchestration**: LangChain / LlamaIndex or a custom orchestrator with tool schemas (Zod/JSON Schema).
+- **Workers**: Celery / RQ / K8s jobs for Playwright rendering, ingestion, and scheduled tasks.
+- **Storage**: Postgres (metadata), S3 (raw artifacts), Redis (session & rate-limits).
+- **Realtime Stack**: LiveKit (rooms), model broker that routes to OpenAI/Google realtime models based on latency/cost.
+- **Monitoring**: OpenTelemetry, Grafana, ELK for logs and traces.
 
 ---
 
-## Phase 7 — Delivery & Ops
-
--   **Hosting**: LiveKit Cloud _or_ self‑hosted SFU; Agents/Workers on a stateless compute (K8s, Fly.io, AWS ECS/Fargate).
--   **Secrets**: short‑lived tokens; bind API keys to server only; per‑tool scoped tokens.
--   **Cost control**:
-
-    -   Realtime/token budgets; compress/segment video; adaptive frame rates.
-    -   Cache TTS for common phrases; summarize long contexts.
-
--   **Observability**: OpenTelemetry spans per turn; log transcripts (redacted) + tool I/O.
-
-**Exit criteria**: Zero‑downtime deploys; rolling upgrades of models/tools without dropping rooms.
+## Operational Principles & Safety
+- Respect robots.txt & site ToS; prefer licensed feeds for heavy news ingestion.
+- Persist provenance for every externally-sourced fact (URL + timestamp + excerpt).
+- Strong PII detection/redaction before logs and audits.
+- Cost control: model broker, caching, and per-user quotas.
+- Human-in-loop for destructive or sensitive actions; explicit confirmation UI.
 
 ---
 
-## Phase 8 — Polishing the Assistant
-
--   **Wake‑word** (optional): on‑device (e.g., Porcupine or custom tiny model).
--   **Few‑shot skills**: quick “playbooks” (e.g., stand‑up notes, travel planning).
--   **Proactive**: scheduled jobs (“summarize my calendar every morning at 9”).
--   **Multi‑party**: handle crosstalk; attribute speakers; summarize meetings.
-
----
-
-## Tech Blueprint (suggested)
-
-**Frontend**
-
--   Next.js/SvelteKit; LiveKit Web SDK; Tailwind + shadcn; media controls, captions, tool‑result cards.
-
-**Backend**
-
--   **LiveKit Agents**: Node or Python worker.
--   **Realtime path**: OpenAI Realtime model via LiveKit OpenAI integration.
--   **Pipeline path**: Whisper (STT) → OpenAI LLM (reasoning) → OpenAI TTS.
--   **Tools**: modular executors with Zod/JSON Schema validation.
--   **Memory**: Postgres + Qdrant; ingestion jobs (PDF/URL/MD → chunks → embeddings).
-
-**Infra**
-
--   LiveKit Cloud (or self‑host); Redis (pub/sub + rate limits); Postgres; Qdrant; object storage for logs/artifacts.
+## Developer Roadmap (sprint-style)
+**Weeks 0–4**: Phase 1 core: full-fetch pipeline, publish-date verification, provenance.  
+**Weeks 5–8**: Vector DB + simple RAG; orchestration controller; basic tests.  
+**Weeks 9–12**: Connectors (Calendar, Slack); action manager.  
+**Weeks 13–18**: Document ingestion, Playwright fallback, RSS/feeds.  
+**Weeks 19–26**: LiveKit streaming improvements, STT/TTS polish, multimodal hooks.  
+**Weeks 27+**: Security audits, scaling, enterprise features.
 
 ---
 
-## Minimal Code Sketches (pseudocode)
-
-### 1) Agent (Realtime path)
-
-```ts
-// livekit-agent.ts (pseudocode)
-import { Worker, connectAgent } from "livekit-agents";
-import { openaiRealtime } from "livekit-agents-openai";
-
-Worker.run(async (job) => {
-    const agent = await connectAgent(
-        job,
-        openaiRealtime({
-            model: process.env.OPENAI_REALTIME_MODEL,
-            apiKey: process.env.OPENAI_API_KEY,
-            // optional: tool schemas go here
-        })
-    );
-
-    agent.on("tool", async (call) => {
-        const result = await executeTool(call.name, call.args);
-        await call.respond(result);
-    });
-});
-```
-
-### 2) Agent (Pipeline path)
-
-```ts
-// voice-pipeline.ts (pseudocode)
-import { VoicePipelineAgent } from "livekit-agents";
-import { whisperSTT, openaiLLM, openaiTTS } from "livekit-agents-openai";
-
-new VoicePipelineAgent({
-    stt: whisperSTT({ model: "whisper‑1" }),
-    llm: openaiLLM({ model: "gpt‑4o‑mini" }),
-    tts: openaiTTS({ voice: "alloy" }),
-});
-```
-
-### 3) Tool schema
-
-```ts
-export const addEvent = {
-    name: "calendar_add_event",
-    description: "Create a calendar event",
-    parameters: {
-        type: "object",
-        properties: {
-            title: { type: "string" },
-            when: { type: "string", description: "ISO datetime or natural language" },
-            durationMin: { type: "number" },
-            attendees: { type: "array", items: { type: "string", format: "email" } },
-        },
-        required: ["title", "when"],
-    },
-};
-```
+## Minimal API & Data Model (suggested)
+- **/query** → orchestrates search→fetch→extract→answer; returns answer + provenance list.  
+- **Provenance record**: `{source_url, publisher, fetch_timestamp, publish_date, excerpt, confidence}`.  
+- **Stored artifact**: raw HTML → s3, extracted text → vector DB; metadata → Postgres.
 
 ---
 
-## Data & Prompts
-
--   **System**: persona, safety rules, escalation policy, confirmation thresholds, how/when to use tools, style (concise, cite sources), and latency budget.
--   **Few‑shots**: canonical examples (timer, meetings, “open my IDE”, “explain this chart”).
--   **RAG**: chunk sizes 512–1,024 tokens; store URL/section anchors; add recency decay.
-
----
-
-## Latency Budget (targets)
-
--   Capture→ASR partial: **<150 ms**
--   ASR finalization: **<300 ms**
--   LLM first token: **<100–200 ms** (with Realtime)
--   TTS speak start: **<150 ms** after first token
--   End‑to‑end barge‑in recovery: **<150 ms** to pause/cancel
+## Prompts, Persona & Prompt Engineering
+- System prompt: define persona, tool usage policy, citation requirement, safety rules, and latency budget.  
+- Few-shots: canonical examples for tool calls and safe confirmations.  
+- RAG prompts: include metadata block (url, date, publisher) for each chunk passed to the LLM.
 
 ---
 
-## Security & Privacy Checklist
-
--   Rotate ephemeral LiveKit tokens; bind to room and role.
--   Do not expose OpenAI keys to the client; only server workers can call models/tools.
--   Per‑tool scoped credentials; rate limits and quotas per user.
--   Redact PII in logs; encrypt transcripts at rest; retention windows per user setting.
+## Testing & Validation
+- Create **golden-case dataset** for time-sensitive queries (yesterday/last week/custom ranges).  
+- Integration tests for search → fetch → publish-date verification flows.  
+- Nightly synthetic conversations and red-team checks.
 
 ---
 
-## What to Build First (milestones)
-
-1. **Voice echo** (join room, bot says “I’m here”).
-2. **Conversational turn‑taking** with barge‑in.
-3. **Timers + Calendar** tools (real utility).
-4. **RAG on your docs** (notes, PDFs, code).
-5. **Vision‑in** (optional) with scene description.
-6. **Proactive morning brief** (agenda + weather + inbox summary).
+## Next Immediate Actions (prioritized)
+1. Replace snippet-only search with full‑HTML fetch + publish‑date verification.  
+2. Add provenance layer and expose in replies.  
+3. Add small vector DB and pass snippets to LLM with citations.  
+4. Implement timeline-intent disambiguation (ask user or infer) for each time-sensitive query.
 
 ---
 
-## Nice‑to‑haves
-
--   Offline fallback (local wake‑word + local STT for quick commands).
--   Telephony (SIP) to call/receive phone calls.
--   Multi‑agent routing: specialized “skills” for travel, coding, home.
+## Appendices (Useful snippets & patterns)
+- Tools must validate input via JSON Schema.  
+- Chunking: 512–1024 tokens with overlap for RAG.  
+- Caching: short TTL (minutes–hours) for news queries; longer for stable documents.
 
 ---
 
-## Project Skeleton (suggested)
-
+## Contact & Repo Layout (recommended)
 ```
 apps/
-  web/                 # Next.js/SvelteKit frontend (LiveKit Web SDK)
-  agent/               # LiveKit Agents worker (Realtime or Pipeline)
-  tools/               # Tool executors (calendar, web, rag, os)
-  ingest/              # RAG ingestion jobs (pdf, url, md)
-  api/                 # Tiny auth (ephemeral tokens), tool webhooks
+  web/                 # frontend (LiveKit Web SDK)
+  agent/               # LiveKit Agents worker
+  tools/               # Tool executors
+  ingest/              # ingestion jobs
+  api/                 # auth + endpoints
 infra/
-  docker-compose.yml   # local dev (postgres, qdrant, redis)
-  k8s/                 # prod manifests …
+  docker-compose.yml
+  k8s/
 ```
 
 ---
 
-## Operational Playbook
-
--   Deploy web + agent separately; rolling update the agent worker pool.
--   Canary new model versions per room tag.
--   Track per‑turn spans (OpenTelemetry); alert on P95 > thresholds.
--   Nightly eval runs (synthetic conversations) with trend reports.
+# Credits & Inspiration
+This combined README merges your original Phase 0–8 design with the phase-by-phase roadmap and retrieval recommendations (SERP + rendered-fetch + extractor + RAG) so Shackleton can be reliable, timeline-aware, and actionable.
 
 ---
-
-## Cutover Guidance
-
--   Start with **Realtime path** for best latency and simple dev.
--   Keep **Pipeline path** behind a flag for fallback/customization.
--   Build tools once; expose to both paths via a shared executor.
-
----
-
-## Appendix — Choices & Trade‑offs
-
--   **Realtime (mono‑model)**: ✔ simplest E2E, best barge‑in; ✖ tighter coupling to a single vendor.
--   **Pipeline (modular)**: ✔ swap STT/TTS providers; ✖ more moving parts and buffering latency.
--   **Vision**: opt‑in only; resize & rate‑limit frames.
--   **RAG**: start with small corpora; add feedback (“did that answer help?”) to tune.
-
----
-
-**Next step:** implement Phase 1. If you want, I can drop in a minimal starter repo layout with real code for the agent worker and a LiveKit‑ready frontend.

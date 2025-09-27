@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     LOG_MAX_BYTES: int = Field(default=5_242_880, gt=0, le=2 * 5_242_880)
     LOG_BACKUP_COUNT: int = Field(default=5, ge=1)
 
+    # Tool credentials
+    JINA_API_KEY: str = Field(default="", env="JINA_API_KEY")
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
@@ -44,3 +47,5 @@ LOG_MAX_BYTES = settings.LOG_MAX_BYTES
 LOG_BACKUP_COUNT = settings.LOG_BACKUP_COUNT
 
 REQUIRE_CONFIRM_SENSITIVE = settings.REQUIRE_CONFIRM_SENSITIVE
+
+JINA_API_KEY = settings.JINA_API_KEY
